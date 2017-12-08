@@ -7,6 +7,7 @@ class Position():
     def __init__(self, data):
         self.min_watermark = 100
         self.max_watermark = -95
+        self.current_watermark = -95
         self.__parse_data(data)
 
     def __parse_data(self, data):
@@ -16,6 +17,7 @@ class Position():
         data = {k: v for k, v in data.items() if v is not None}
         prevmin = self.min_watermark
         prevmax = self.max_watermark
+        prevcurrent = self.current_watermark
         orders = None
         if (("orders" in data and len(data["orders"]) == 0)) and ("orders" not in data and hasattr(self, 'orders')):
             orders = self.orders
@@ -23,6 +25,7 @@ class Position():
         self.__dict__ = data
         self.max_watermark = prevmax
         self.min_watermark = prevmin
+        self.current_watermark = prevcurrent
         if orders:
             self.orders = orders
         self.logger = logging.getLogger("iqoption_api.position")
@@ -33,11 +36,12 @@ class Position():
         if self.is_open() != prev:
             logger = logging.getLogger("iqoption_api.position.close")
             self.logger.info("posisiton closed")
-            logger.info('{},{},{},{},{},{},{},{},{}'.format(self.update_at, self.create_at, self.close_at, self.id, self.min_watermark, self.max_watermark, self.close_effect_amount_enrolled, self.close_reason, self.instrument_id))
+            logger.info('{},{},{},{},{},{},{},{},{}'.format(self.update_at, self.create_at, self.close_at, self.id, self.min_watermark, self.max_watermark, self.current_watermark, self.close_reason, self.instrument_id))
 
     def update_watermarks(self, percent):
         self.min_watermark = min(self.min_watermark, percent)
         self.max_watermark = max(self.max_watermark, percent)
+        self.current_watermark = percent
 
     def update_order(self, data):
         """{'instrument_id_escape': 'USDNOK', 'basic_stoplimit_amount': 68.0, 'take_profit_price': None, 'stop_lose_price': None, 'tpsl_extra': None, 'instrument_strike_value': None, 'instrument_type': 'forex', 'instrument_id': 'USDNOK', 'instrument_underlying': 'USDNOK', 'instrument_active_id': 168, 'instrument_expiration': None, 'instrument_strike': None, 'instrument_dir': None, 'id': 197997486, 'user_id': 25309108, 'user_balance_id': 43902542, 'user_balance_type': 4, 'position_id': 105120553, 'create_at': 1512136901477, 'update_at': 1512136902059, 'execute_at': 1512136902080, 'side': 'sell', 'type': 'market', 'status': 'filled', 'execute_status': 'trade', 'count': 410.19, 'leverage': 50, 'underlying_price': 8.28878, 'avg_price': 8.28878, 'avg_price_enrolled': 8.28878, 'client_platform_id': 9, 'limit_price': 0.0, 'stop_price': 0.0, 'currency': 'USD', 'margin': 67.999493, 'spread': 0.002149999999998542, 'commission_amount': 0.0, 'commission_amount_enrolled': 0.0, 'extra_data': {'amount': 68000000, 'auto_margin_call': False, 'paid_for_commission': 3.2978681700337323e-229, 'use_token_for_commission': False, 'paid_for_commission_enrolled': 3.2978681700337323e-229}, 'time_in_force': 'good_till_cancel', 'time_in_force_date': None, 'index': 268787403}"""

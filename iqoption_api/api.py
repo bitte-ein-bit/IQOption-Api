@@ -20,6 +20,7 @@ class IQOption():
     id_to_instruments = {}
     market_data = {}
     stoploss_update = {}
+    loaded_watermarks = {}
 
     def __init__(self, username, password, host="iqoption.com"):
 
@@ -164,6 +165,19 @@ class IQOption():
     def answer_heartbeat(self, heartbeattime):
         self.send_socket_message("heartbeat", {"userTime": "{:.0f}".format(time.time()*100), "heartbeatTime": heartbeattime}, False)
 
+    def store_watermarks(self, filename):
+        with open(filename, 'w') as f:
+            for pos in self.get_open_positions():
+                f.write("{},{},{}\n".format(pos.id, pos.min_watermark, pos.max_watermark))
+
+    def load_watermarks(self, filename):
+        with open(filename, 'r') as f:
+            for line in f:
+                data = [x.strip() for x in line.split(',')]
+                self.logger.debug("loading watermarks: {}".format(data))
+                if len(data) == 3:
+                    self.loaded_watermarks[int(data[0])] = {'min': float(data[1]), 'max': float(data[2])}
+
     def parse_position_message(self, message):
         id = message["id"]
         self.logger.debug("parsed position: {0}".format(id))
@@ -172,6 +186,9 @@ class IQOption():
             self.positions[id].update(message)
         else:
             self.positions[id] = Position(message)
+            if id in self.loaded_watermarks:
+                self.positions[id].min_watermark = self.loaded_watermarks[id]['min']
+                self.positions[id].max_watermark = self.loaded_watermarks[id]['max']
 
     def parse_order_changed(self, message):
         """{'instrument_id_escape': 'USDNOK', 'basic_stoplimit_amount': 68.0, 'take_profit_price': None, 'stop_lose_price': None, 'tpsl_extra': None, 'instrument_strike_value': None, 'instrument_type': 'forex', 'instrument_id': 'USDNOK', 'instrument_underlying': 'USDNOK', 'instrument_active_id': 168, 'instrument_expiration': None, 'instrument_strike': None, 'instrument_dir': None, 'id': 197997486, 'user_id': 25309108, 'user_balance_id': 43902542, 'user_balance_type': 4, 'position_id': 105120553, 'create_at': 1512136901477, 'update_at': 1512136902059, 'execute_at': 1512136902080, 'side': 'sell', 'type': 'market', 'status': 'filled', 'execute_status': 'trade', 'count': 410.19, 'leverage': 50, 'underlying_price': 8.28878, 'avg_price': 8.28878, 'avg_price_enrolled': 8.28878, 'client_platform_id': 9, 'limit_price': 0.0, 'stop_price': 0.0, 'currency': 'USD', 'margin': 67.999493, 'spread': 0.002149999999998542, 'commission_amount': 0.0, 'commission_amount_enrolled': 0.0, 'extra_data': {'amount': 68000000, 'auto_margin_call': False, 'paid_for_commission': 3.2978681700337323e-229, 'use_token_for_commission': False, 'paid_for_commission_enrolled': 3.2978681700337323e-229}, 'time_in_force': 'good_till_cancel', 'time_in_force_date': None, 'index': 268787403}"""
