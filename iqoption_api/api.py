@@ -19,6 +19,7 @@ class IQOption():
     instruments_to_id = {}
     id_to_instruments = {}
     market_data = {}
+    stoploss_update = {}
 
     def __init__(self, username, password, host="iqoption.com"):
 
@@ -75,49 +76,50 @@ class IQOption():
 
     def on_socket_message(self, socket, message):
         message = json.loads(message)
+        messagename = message["name"]
+        message = message["msg"]
 
-        if message["name"] == "timeSync":
-            self.__server_timestamp = message["msg"]
+        if messagename == "timeSync":
+            self.__server_timestamp = message
             self.server_time = datetime.fromtimestamp(self.__server_timestamp/1000)
             self.tick = self.server_time.second
 
-        elif message["name"] in ["tradersPulse", "tournament", "activeCommissionChange"]:
+        elif messagename in ["tradersPulse", "tournament", "activeCommissionChange", "order-placed-temp", "front"]:
             pass
 
-        elif message["name"] == "heartbeat":
-            self.answer_heartbeat(message["msg"])
+        elif messagename == "heartbeat":
+            self.answer_heartbeat(message)
 
-        elif message["name"] == "profile":
-            self.parse_profile_message(message["msg"])
+        elif messagename == "profile":
+            self.parse_profile_message(message)
 
-        elif message["name"] == "position-changed":
-            self.parse_position_message(message["msg"])
+        elif messagename == "position-changed":
+            self.parse_position_message(message)
 
-        elif message["name"] == "newChartData":
-            self.parse_new_chart_data_message(message["msg"])
+        elif messagename == "newChartData":
+            self.parse_new_chart_data_message(message)
 
-        elif message["name"] == "top-assets":
-            self.parse_top_assets_message(message["msg"])
+        elif messagename == "top-assets":
+            self.parse_top_assets_message(message)
 
-        elif message["name"] == "instruments":
-            self.parse_instruments_message(message["msg"])
+        elif messagename == "instruments":
+            self.parse_instruments_message(message)
 
-        elif message["name"] == "available-leverages":
-            self.parse_available_leverages(message["msg"])
+        elif messagename == "available-leverages":
+            self.parse_available_leverages(message)
 
-        elif message["name"] == "order-changed":
-            # print(message["msg"])
-            self.parse_order_changed(message["msg"])
+        elif messagename == "order-changed":
+            self.parse_order_changed(message)
 
-        elif message["name"] == "tpsl-changed":
-            self.parse_tpsl_changed(message["msg"])
+        elif messagename == "tpsl-changed":
+            self.parse_tpsl_changed(message)
 
-        elif message["name"] == "positions":
-            self.parse_positions_message(message["msg"])
+        elif messagename == "positions":
+            self.parse_positions_message(message)
 
         else:
-            self.logger.info("unknown message: {0}".format(message["name"]))
-            # pprint.pprint(message["msg"])
+            self.logger.info("unknown message: {0}".format(messagename))
+            self.logger.debug(message)
             pass
 
     def on_socket_connect(self, socket):
@@ -128,8 +130,7 @@ class IQOption():
 
     def on_socket_error(self, socket, error):
         """Called on Socket Error"""
-
-        self.logger.error(error)
+        self.logger.exception(error)
 
     def on_socket_close(self, socket):
         """Called on Socket Close"""
@@ -138,10 +139,13 @@ class IQOption():
         """Start Socket Connection"""
         self.socket_thread = Thread(target=self.socket.run_forever).start()
 
+    def stop_socket_connection(self):
+        self.socket.close()
+
     def send_socket_message(self, name, msg, log=True):
         data = {"name": name, "msg": msg}
         if log:
-            self.logger.info("send_socket_message: {0}".format(data))
+            self.logger.debug("send_socket_message: {0}".format(data))
         self.socket.send(json.dumps(data))
 
     def initial_subscriptions(self):
@@ -162,9 +166,9 @@ class IQOption():
 
     def parse_position_message(self, message):
         id = message["id"]
-        self.logger.info("parsed position: {0}".format(id))
+        self.logger.debug("parsed position: {0}".format(id))
+        self.logger.debug("parsed position: {}".format(message))
         if id in self.positions:
-            # pprint.pprint(self.positions[id].get_data())
             self.positions[id].update(message)
         else:
             self.positions[id] = Position(message)
@@ -258,10 +262,12 @@ class IQOption():
             self.send_socket_message("sendMessage", {"name": "get-positions", "version": "1.0", "body": {"user_balance_id": self.active_account_id, "instrument_type": instrument_type}})
 
     def get_open_positions(self, market=None):
+        tmp = self.positions
+        tmp = sorted(tmp.values(), key=lambda x: x.id)
         if market is None:
-            return [self.positions[pos] for pos in self.positions if self.positions[pos].is_open()]
+            return [pos for pos in tmp if pos.is_open()]
         else:
-            return [self.positions[pos] for pos in self.positions if self.positions[pos].is_open() and self.positions[pos].instrument_id == market]
+            return [pos for pos in tmp if pos.is_open() and pos.instrument_id == market]
 
     def get_leverage(self, instrument_type, actives):
         self.send_socket_message("sendMessage", {"name": "get-available-leverages", "version": "2.0", "body": {"instrument_type": instrument_type, "actives": json.dumps(actives)}})
@@ -284,7 +290,7 @@ class IQOption():
             self.logger.warning("invalid leverage in buy_forex: {}".format(leverage))
             return
         # "{"name":"sendMessage","request_id":"1511993239_839844713","msg":{"name":"place-order-temp","version":"3.0","body":{"user_balance_id":43902542,"client_platform_id":"9","instrument_type":"forex","instrument_id":"EURUSD","side":"buy","type":"market","amount":1,"leverage":500,"limit_price":0,"stop_price":0,"use_token_for_commission":false}}}"
-
+        self.logger.info("Buying {} of {} with direction {} and leverage {}".format(amount, market, side, leverage))
         self.send_socket_message("sendMessage", {
                                   "name": "place-order-temp",
                                   "version": "3.0",
@@ -303,5 +309,9 @@ class IQOption():
                                   }})
 
     def update_stoploss(self, position_id, stop_lose_value, take_profit_value=None):
+        if position_id in self.stoploss_update and time.time() - self.stoploss_update[position_id] < 0.5:
+            self.logger.debug("skipping stop loss update, last update less than 500ms away")
+            return
+        self.stoploss_update[position_id] = time.time()
         self.logger.info("stop loss: {} -> {}:{}".format(position_id, stop_lose_value, take_profit_value))
         self.send_socket_message("sendMessage", {"name": "change-tpsl", "version": "1.0", "body": {"position_id": position_id, "take_profit": take_profit_value, "stop_lose": stop_lose_value, "extra": {"stop_lose_type": "percent", "take_profit_type": "percent"}}})
