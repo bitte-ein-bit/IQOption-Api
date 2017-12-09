@@ -1,6 +1,7 @@
 import logging
 import time
 from math import log10, floor
+import datetime
 
 
 class Position():
@@ -30,13 +31,18 @@ class Position():
             self.orders = orders
         self.logger = logging.getLogger("iqoption_api.position")
 
+    def to_date(self, timestamp):
+        return datetime.datetime.fromtimestamp(
+                int(timestamp/1000)
+            ).strftime('%Y-%m-%d %H:%M:%S')
+
     def update(self, data):
         prev = self.is_open()
         self.__parse_data(data)
         if self.is_open() != prev:
             logger = logging.getLogger("iqoption_api.position.close")
             self.logger.info("posisiton closed")
-            logger.info('{},{},{},{},{},{},{},{},{}'.format(self.update_at, self.create_at, self.close_at, self.id, self.min_watermark, self.max_watermark, self.current_watermark, self.close_reason, self.instrument_id))
+            logger.info('{},{},{},{:0.3f},{:0.3f},{:0.3f},{},{},{}'.format(self.to_date(self.close_at), self.to_date(self.create_at), self.id, self.min_watermark, self.current_watermark, self.max_watermark, self.close_reason, self.instrument_id, self.leverage))
 
     def update_watermarks(self, percent):
         self.min_watermark = min(self.min_watermark, percent)

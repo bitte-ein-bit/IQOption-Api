@@ -21,7 +21,6 @@ A Simple websocket API for IQ Option.
         from iqoption_api import IQOption
         api = IQOption("mail@email.com","password")
         api.login() # Returns True if successful else False
-        api.start_socket_connection()
 
 ### Check Account Type
 
@@ -38,8 +37,9 @@ A Simple websocket API for IQ Option.
         api.change_account("real") # `real` or `practice` Returns Account Type (`real` or `practice`)
 
 
-### Check Positions Modified/Opened After API Started
-        print(api.positions)  
+### Check Positions modified after API started/open at API start
+        print(api.positions)
+        print(api.get_open_positions()) # get currently open positions
 
 ### Get Server Tick
         print(api.tick) ## range 0, 59
@@ -55,3 +55,6 @@ A Simple websocket API for IQ Option.
 
 ### Access Market Data
         api.market_data
+
+### Buy forex
+        api.buy_forex(amount, market, leverage, "buy/sell")
