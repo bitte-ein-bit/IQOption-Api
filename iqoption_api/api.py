@@ -78,10 +78,16 @@ class IQOption():
     def on_socket_message(self, socket, message):
         message = json.loads(message)
         messagename = message["name"]
-        message = message["msg"]
+        msg = message["msg"]
+        try:
+            if message['status'] > 4000:
+                self.logger.error('Error on socket message: {}'.format(message))
+                return
+        except (AttributeError, KeyError):
+            pass
 
         if messagename == "timeSync":
-            self.__server_timestamp = message
+            self.__server_timestamp = msg
             self.server_time = datetime.fromtimestamp(self.__server_timestamp/1000)
             self.tick = self.server_time.second
 
@@ -89,38 +95,38 @@ class IQOption():
             pass
 
         elif messagename == "heartbeat":
-            self.answer_heartbeat(message)
+            self.answer_heartbeat(msg)
 
         elif messagename == "profile":
-            self.parse_profile_message(message)
+            self.parse_profile_message(msg)
 
         elif messagename == "position-changed":
-            self.parse_position_message(message)
+            self.parse_position_message(msg)
 
         elif messagename == "newChartData":
-            self.parse_new_chart_data_message(message)
+            self.parse_new_chart_data_message(msg)
 
         elif messagename == "top-assets":
-            self.parse_top_assets_message(message)
+            self.parse_top_assets_message(msg)
 
         elif messagename == "instruments":
-            self.parse_instruments_message(message)
+            self.parse_instruments_message(msg)
 
         elif messagename == "available-leverages":
-            self.parse_available_leverages(message)
+            self.parse_available_leverages(msg)
 
         elif messagename == "order-changed":
-            self.parse_order_changed(message)
+            self.parse_order_changed(msg)
 
         elif messagename == "tpsl-changed":
-            self.parse_tpsl_changed(message)
+            self.parse_tpsl_changed(msg)
 
         elif messagename == "positions":
-            self.parse_positions_message(message)
+            self.parse_positions_message(msg)
 
         else:
             self.logger.info("unknown message: {0}".format(messagename))
-            self.logger.debug(message)
+            self.logger.debug(msg)
             pass
 
     def on_socket_connect(self, socket):
@@ -141,7 +147,9 @@ class IQOption():
         self.socket_thread = Thread(target=self.socket.run_forever).start()
 
     def stop_socket_connection(self):
+        self.logger.info("closing websocket connection")
         self.socket.close()
+        self.logger.info("websocket connection closed")
 
     def send_socket_message(self, name, msg, log=True):
         data = {"name": name, "msg": msg}
@@ -240,15 +248,18 @@ class IQOption():
         self.__dict__["{}_leverages".format(instrument_type)] = temp
 
     def parse_instruments_message(self, message):
-        instrument_type = message["type"]
-        self.logger.debug("parse_instruments_message: {}".format(message))
-        temp = {}
-        for ele in message["instruments"]:
-            temp[ele["id"]] = ele["active_id"]
-            self.instruments_to_id[ele["id"]] = ele["active_id"]
-            self.id_to_instruments[ele["active_id"]] = ele["id"]
-        self.__dict__["{}_instruments".format(instrument_type)] = temp
-        self.get_leverage(instrument_type, list(temp.values()))
+        try:
+            instrument_type = message["type"]
+            self.logger.debug("parse_instruments_message: {}".format(message))
+            temp = {}
+            for ele in message["instruments"]:
+                temp[ele["id"]] = ele["active_id"]
+                self.instruments_to_id[ele["id"]] = ele["active_id"]
+                self.id_to_instruments[ele["active_id"]] = ele["id"]
+            self.__dict__["{}_instruments".format(instrument_type)] = temp
+            self.get_leverage(instrument_type, list(temp.values()))
+        except Exception:
+            self.logger.exception("error parse_instruments_message {}".format(message))
 
     def change_account(self, account_type):
         """Change active account `real` or `practice`"""
