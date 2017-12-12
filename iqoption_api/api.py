@@ -21,6 +21,7 @@ class IQOption():
     market_data = {}
     stoploss_update = {}
     loaded_watermarks = {}
+    spread = {}
 
     def __init__(self, username, password, host="iqoption.com"):
 
@@ -28,10 +29,10 @@ class IQOption():
         self.password = password
         self.host = host
         self.session = requests.Session()
+        self.client_platform_id = 9
         self.generate_urls()
         self.socket = websocket.WebSocketApp(self.socket_url, on_open=self.on_socket_connect, on_message=self.on_socket_message, on_close=self.on_socket_close, on_error=self.on_socket_error)
         self.logger = logging.getLogger("iqoption_api")
-        self.client_platform_id = 9
 
     def generate_urls(self):
         """Generates Required Urls to operate the API"""
@@ -48,7 +49,8 @@ class IQOption():
 
         data = {"email": self.username, "password": self.password}
         self.__login_response = self.session.request(url=self.login_url, data=data, method="POST")
-        requests.utils.add_dict_to_cookiejar(self.session.cookies, dict(platform=self.client_platform_id))
+        # self.session.cookies = requests.utils.cookiejar_from_dict(dict(platform=self.client_platform_id)) # TODO, this errors
+
         json_login_response = self.__login_response.json()
         if json_login_response["isSuccessful"]:
             self.__ssid = self.__login_response.cookies["ssid"]
@@ -217,12 +219,16 @@ class IQOption():
 
     def parse_new_chart_data_message(self, message):
         symbol = message["symbol"]
+        # remove some redundant data
+        message.pop("symbol", None)
+        message.pop("active_id", None)
         self.logger.debug("parse_new_chart_data_message: {0}".format(message))
-
         if symbol in self.market_data:
             self.market_data[symbol][message["time"]] = message
         else:
             self.market_data[symbol] = {message["time"]: message}
+
+        self.spread[symbol] = (message['ask']-message['bid'])/message['value']
 
     def get_latest_chart_data(self, symbol):
         """returns something like this: {'active_id': 102, 'symbol': 'GBPCAD', 'bid': 1.7419499999999999, 'ask': 1.74222, 'value': 1.742085, 'volume': 0, 'time': 1512058717, 'closed': False, 'show_value': 1.742085, 'buy': 1.74222, 'sell': 1.7419499999999999}"""
@@ -231,6 +237,11 @@ class IQOption():
             return self.market_data[symbol][last]
         else:
             return None
+
+    def get_chart_data_for_time(self, time='last'):
+        if time == 'last':
+            time = sorted(self.market_data[list(self.market_data.keys())[-1]].keys())[-1]
+        return {x:self.market_data.get(x).get(time) for x in self.market_data.keys()}
 
     def parse_top_assets_message(self, message):
         instrument_type = message["instrument_type"]
@@ -265,6 +276,8 @@ class IQOption():
         """Change active account `real` or `practice`"""
 
         data = {"balance_id": self.account_to_id[account_type.lower()]}
+        self.logger.info('cookies: {}'.format(self.session.cookies))
+
         self.session.request(url=self.change_account_url, data=data, method="POST")
         self.update_info()
         return self.active_account
@@ -309,6 +322,11 @@ class IQOption():
         if market_name:
             market_id = self.instruments_to_id.get(market_name)
         self.send_socket_message("unsubscribeMessage", {"name": "quote-generated", "version": "1.0", "params": {"routingFilters": {"active_id": market_id}}})
+
+    def resubscribe_market(self, market_name=None, market_id=None):
+        self.unsubscribe_market(market_name, market_id)
+        time.sleep(0.5)
+        self.subscribe_market(market_name, market_id)
 
     def buy_forex(self, amount, market, leverage, side):
         if market not in self.forex_instruments:

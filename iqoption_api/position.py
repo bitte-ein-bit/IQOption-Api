@@ -94,27 +94,37 @@ class Position():
             else:
                 return (1 - 0.95/self.leverage) * self.buy_avg_price_enrolled
 
-    def get_current_win(self, currentprice):
+    def stop_loss_percent(self):
+        stop_loss = self.stop_loss()
+        if self.is_sell():
+            return (1-stop_loss/self.sell_avg_price_enrolled)*self.leverage*100
+        else:
+            return (-1 + stop_loss/self.buy_avg_price_enrolled)*self.leverage*100
+
+    def get_current_win(self, last_market_data):
         if self.is_sell():
             # sell
             price = self.sell_avg_price_enrolled
-            percent_with_lev = (1-currentprice/price) * self.leverage
+            currentprice = last_market_data["ask"]
+            return (1-currentprice/price) * self.leverage
 
         elif self.is_buy():
             # buy
             price = self.buy_avg_price_enrolled
-            percent_with_lev = (1-price/currentprice) * self.leverage
+            currentprice = last_market_data["bid"]
+
+            return (1-price/currentprice) * self.leverage
         else:
             self.logger.warn("invalid/unknown enrollment price")
             return 0.0
-        # pure guess. No clue how the margin is calculated
-        return percent_with_lev - 0.02
 
-    def get_stoploss(self, percent_buffer, current_price):
+    def get_stoploss(self, percent_buffer, last_market_data):
         if self.is_sell():
-            return self.round_sig(current_price + percent_buffer * self.get_open_price() / self.leverage)
+            currentprice = last_market_data["ask"]
+            return self.round_sig(currentprice + percent_buffer * self.get_open_price() / self.leverage)
         elif self.is_buy():
-            return self.round_sig(self.get_open_price() / ((self.get_open_price() / current_price) + (percent_buffer / self.leverage)))
+            currentprice = last_market_data["bid"]
+            return self.round_sig(self.get_open_price() / ((self.get_open_price() / currentprice) + (percent_buffer / self.leverage)))
         else:
             raise ValueError("unknown")
 
@@ -124,11 +134,13 @@ class Position():
         except ValueError:
             return 0
 
-    def get_takeprofit(self, percent_buffer, current_price):
+    def get_takeprofit(self, percent_buffer, last_market_data):
         if self.is_sell():
-            return self.round_sig(current_price - percent_buffer * self.get_open_price() / self.leverage)
+            currentprice = last_market_data["ask"]
+            return self.round_sig(currentprice - percent_buffer * self.get_open_price() / self.leverage)
         elif self.is_buy():
-            return self.round_sig(self.get_open_price() / ((self.get_open_price() / current_price) - (percent_buffer / self.leverage)))
+            currentprice = last_market_data["bid"]
+            return self.round_sig(self.get_open_price() / ((self.get_open_price() / currentprice) - (percent_buffer / self.leverage)))
         else:
             raise ValueError("unknown")
 
