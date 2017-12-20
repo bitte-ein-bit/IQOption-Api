@@ -19,6 +19,7 @@ class IQOption():
     instruments_to_id = {}
     id_to_instruments = {}
     market_data = {}
+    last_market_data = {}
     stoploss_update = {}
     loaded_watermarks = {}
     spread = {}
@@ -228,13 +229,13 @@ class IQOption():
         else:
             self.market_data[symbol] = {message["time"]: message}
 
+        self.last_market_data[symbol] = message
         self.spread[symbol] = (message['ask']-message['bid'])/message['value']
 
     def get_latest_chart_data(self, symbol):
         """returns something like this: {'active_id': 102, 'symbol': 'GBPCAD', 'bid': 1.7419499999999999, 'ask': 1.74222, 'value': 1.742085, 'volume': 0, 'time': 1512058717, 'closed': False, 'show_value': 1.742085, 'buy': 1.74222, 'sell': 1.7419499999999999}"""
-        if symbol in self.market_data:
-            last = sorted(self.market_data[symbol].keys())[-1]
-            return self.market_data[symbol][last]
+        if symbol in self.last_market_data:
+            return self.last_market_data[symbol]
         else:
             return None
 
@@ -325,7 +326,7 @@ class IQOption():
 
     def resubscribe_market(self, market_name=None, market_id=None):
         self.unsubscribe_market(market_name, market_id)
-        time.sleep(0.5)
+        time.sleep(0.2)
         self.subscribe_market(market_name, market_id)
 
     def buy_forex(self, amount, market, leverage, side):
@@ -355,9 +356,22 @@ class IQOption():
                                   }})
 
     def update_stoploss(self, position_id, stop_lose_value, take_profit_value=None):
-        if position_id in self.stoploss_update and time.time() - self.stoploss_update[position_id] < 0.5:
+        if position_id in self.stoploss_update and time.time() - self.stoploss_update[position_id]["time"] < 0.5:
             self.logger.debug("skipping stop loss update, last update less than 500ms away")
             return
-        self.stoploss_update[position_id] = time.time()
+        counter = 0
+        if position_id in self.stoploss_update:
+            if (
+                    self.stoploss_update[position_id]["take_profit"] == take_profit_value and
+                    self.stoploss_update[position_id]["stop_lose"] == stop_lose_value
+                ):
+                counter = self.stoploss_update[position_id]["counter"] + 1
+                self.logger.info("maybe lost position sl/tp orders? Counting {}".format(counter))
+
+        self.stoploss_update[position_id] = {'time': time.time(), "take_profit": take_profit_value, "stop_lose": stop_lose_value, "counter": counter}
         self.logger.info("stop loss: {} -> {}:{}".format(position_id, stop_lose_value, take_profit_value))
         self.send_socket_message("sendMessage", {"name": "change-tpsl", "version": "1.0", "body": {"position_id": position_id, "take_profit": take_profit_value, "stop_lose": stop_lose_value, "extra": {"stop_lose_type": "percent", "take_profit_type": "percent"}}})
+
+        if counter > 5:
+            self.logger.info("parsing all positions for {}".format(self.positions[position_id].instrument_type))
+            self.get_positions(self.positions[position_id].instrument_type)
